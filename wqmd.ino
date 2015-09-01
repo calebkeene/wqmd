@@ -14,7 +14,7 @@ float temperature, conductivity;
 //Temperature chip i/o
 OneWire ds(DS18B20_Pin);  // on digital pin 10
 
-int sampleSpeedSW;//toggle switch for selected fast or slow sampling
+int bluetoothSW;//toggle switch
 int sampleNumber = 0;
 String data[50]; //store samples
 String device_id = "fluid_sol_01";
@@ -23,23 +23,19 @@ unsigned long lastSampleTime = 0;
 void setup(){
 	Serial.begin(115200);
 	pinMode(ECsensorPin, INPUT); //conductivity sensor
-	pinMode(2, INPUT); //sample speed selection switch on pin 2
+	pinMode(2, INPUT); // switch on pin 2
 }
 
 void loop(){
 	
-	readSerial(); // will send data if it is being requested
-	sampleSpeedSW = digitalRead(2);
+	bluetoothSW = digitalRead(2);
 	
-	if(sampleSpeedSW == 0){ // slow sample rate (24 hours deployment)
-		if(millis() >= (lastSampleTime + 1200000)){ // ~20 mins has passed since last sample taken
-			takeSample();
-		}
+	if(bluetoothSW == 1){
+		readSerial(); // will send data if it is being requested
 	}
-	else{ // fast sample rate (up to ~2 hours deployment)
-		if(millis() >= (lastSampleTime + 240000)){ // ~4 mins has passed since last sample taken
+
+	if(millis() >= (lastSampleTime + 1200000)){ // ~20 mins has passed since last sample taken
 			takeSample();
-		}
 	}
 }
 
@@ -52,7 +48,8 @@ void takeSample(){
 	AnalogAverage = AnalogValueTotal / 25;
 
 	tempProcess(StartConvert);
-	delay(800);
+	delay(800); // need to wait at least 750ms after conversion before reading temp (ensures accuracy)
+	
 	temperature = tempProcess(ReadTemperature);
 	averageVoltage=AnalogAverage*(float)5000/1024; //millivolt average,from 0mv to 4995mV
 
@@ -60,11 +57,12 @@ void takeSample(){
 	float tempCoefficient=1.0+0.0185*(temperature-25.0);
 	float voltageCoefficient=(float)averageVoltage/tempCoefficient;
 
-	if(voltageCoefficient<=448)conductivity=6.84*voltageCoefficient-64.32;   //1ms/cm<EC<=3ms/cm
-  else if(voltageCoefficient<=1457)conductivity=6.98*voltageCoefficient-127;  //3ms/cm<EC<=10ms/cm
-  else conductivity=5.3*voltageCoefficient+2278;                           //10ms/cm<EC<20ms/cm
+	if(voltageCoefficient <= 448)conductivity=6.84*voltageCoefficient-64.32;//1ms/cm<EC<=3ms/cm
+  else if(voltageCoefficient <= 1457)conductivity=6.98*voltageCoefficient-127;//3ms/cm<EC<=10ms/cm
+  else conductivity = 5.3*voltageCoefficient+2278;//10ms/cm<EC<20ms/cm
   conductivity/=1000; //convert us/cm to ms/cm
-  storeSampleJSONObject(temperature, conductivity);
+  // Serialise to measurement to JSON
+  serialiseToJson(temperature, conductivity);
 }
 
 void readSerial(){
@@ -96,7 +94,10 @@ void readSerial(){
   if (root.success()){
   	char* cmd = root["cmd"];
   	if(cmd == "RetrieveData"){
-  		sendData();
+  		
+  		if(isData() == 1){
+  			sendData();
+  		}
   	}
   }
   else{
@@ -105,7 +106,14 @@ void readSerial(){
 	}
 }
 
+void isData(){
+	// just check if there is at least 1 measurement
+	if(sizeof(data[0]) > 1) return 1;
+	else return 0;
+}
+
 void sendData(){
+
 	int i;
 	String json = "{\n\"Samples\":[";
 	
@@ -124,8 +132,8 @@ void sendData(){
 	Serial.println(json); // send data
 }
 
-void storeSampleJSONObject(float temp, float cond){
-	//char buf[10];
+void serialiseToJson(float temp, float cond){
+	// construct JSON obj for individual sample
 	String sample;
   sample += "{\"DeviceID\":\"";
   sample += device_id;
@@ -150,7 +158,7 @@ void storeSampleJSONObject(float temp, float cond){
 }
 
 unsigned long ms_to_min(unsigned long milli_seconds){
-	return (milli_seconds * 6000);
+	return (milli_seconds * 60000);
 }
 
 float tempProcess(bool ch){ //returns temperature in degrees C
