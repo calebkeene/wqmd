@@ -16,6 +16,7 @@ OneWire ds(DS18B20_Pin);  // on digital pin 10
 
 int bluetoothSW;//toggle switch
 int sampleNumber = 0;
+
 String data[50]; //store samples
 String device_id = "fluid_sol_01";
 unsigned long lastSampleTime = 0;
@@ -29,11 +30,9 @@ void setup(){
 void loop(){
   
   bluetoothSW = digitalRead(2);
-  
   if(bluetoothSW == 1){
     readSerial(); // will send data if it is being requested
   }
-
   if(millis() >= (lastSampleTime + 1200000)){ // ~20 mins has passed since last sample taken
       takeSample();
   }
@@ -78,7 +77,7 @@ void readSerial(){
       if(index < (sizeof(json)-1)){ // keep within array index bounds
         currChar = Serial.read(); // Read char
         json[index] = currChar; 
-        index++; 
+        index++; // add to String
         json[index] = '\0'; // Null terminate the string
       }
       // if greater than 10 seconds have passed, break out (timeout)
@@ -91,22 +90,20 @@ void readSerial(){
   StaticJsonBuffer<16> jsonBuffer;
   JsonObject& root = jsonBuffer.parseObject(json);
 
-  if (root.success()){
-    char* cmd = root["cmd"];
-    if(cmd == "RetrieveData"){
-      
-      if(isData() == 1){
-        sendData();
-      }
-    }
-  }
-  else{
+  if (!root.success()){
     Serial.println("parseObject() failed");
     return;
   }
+
+  const char* cmd = root["cmd"].asString(); //explicit cast on the end
+  if(strcmp(cmd, "RetrieveData") == 0){ //if command from mobile app is RetrieveData
+    if(isData() == 1){ //if there are any measurements to send
+      sendData();
+    }
+  }
 }
 
-void isData(){
+int isData(){
   // just check if there is at least 1 measurement
   if(sizeof(data[0]) > 1) return 1;
   else return 0;
@@ -124,12 +121,13 @@ void sendData(){
       json += ",\n";
     }
   }
-
   json += "\n]\"TimeSinceLast\":";
   json += (String)ms_to_min(millis() - lastSampleTime);
   json += "\n}";
-
-  Serial.println(json); // send data
+  
+  //issue with this printing at the moment
+  // undefined reference to `Print::print(String const&)'
+  Serial.print(json); // send data
 }
 
 void serialiseToJson(float temp, float cond){
@@ -167,17 +165,17 @@ float tempProcess(bool ch){ //returns temperature in degrees C
   static float temperatureSum;
   if(!ch){
     if ( !ds.search(addr)) {
-        Serial.println("no more sensors on chain, reset search");
-        ds.reset_search();
-        return 0;
+      Serial.println("no more sensors on chain, reset search");
+      ds.reset_search();
+      return 0;
     }      
     if ( OneWire::crc8( addr, 7) != addr[7]) {
-        Serial.println("CRC not valid");
-        return 0;
+      Serial.println("CRC not valid");
+      return 0;
     }        
     if ( addr[0] != 0x10 && addr[0] != 0x28) {
-        Serial.print("Device not recognized");
-        return 0;
+      Serial.print("Device not recognized");
+      return 0;
     }      
     ds.reset();
     ds.select(addr);
@@ -195,6 +193,6 @@ float tempProcess(bool ch){ //returns temperature in degrees C
     byte LSB = data[0];        
     float tempRead = ((MSB << 8) | LSB); //using twos complement
     temperatureSum = tempRead / 16;
-    }
+  }
   return temperatureSum;  
 }
