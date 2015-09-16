@@ -1,5 +1,6 @@
 #include <ArduinoJson.h>
 #include <OneWire.h>
+#include <SD.h>
 
 #define StartConvert 0
 #define ReadTemperature 1
@@ -7,7 +8,14 @@
 
 byte ECsensorPin = A1;  //EC Meter analog output,pin on analog 1
 byte DS18B20_Pin = 10; //DS18B20 signal (temp sensor), pin on digital 10
+const int chipSelect = 8;
+File dataFile;
 
+int sampleNumber = 1;
+String device_id = "fluid_sol_01";
+
+
+unsigned long lastTime = 0;
 unsigned long AnalogValueTotal = 0; // for averaging conductivity
 unsigned int AnalogAverage = 0, averageVoltage=0;
 float temperature, conductivity;
@@ -15,23 +23,76 @@ float temperature, conductivity;
 OneWire ds(DS18B20_Pin);  // on digital pin 10
 
 void setup(){
-  Serial.begin(115200);
+  Serial.begin(9600);
   pinMode(ECsensorPin, INPUT); //conductivity sensor
+
   pinMode(DS18B20_Pin, INPUT); // Dallas onewire temp sensor
+  pinMode(chipSelect, OUTPUT);
+
+// see if the card is present and can be initialized:
+  if (SD.begin(chipSelect)){
+    Serial.println("card initialized.");
+  }
+  else{
+    Serial.println("card initialized.");
+  }
 }
 
 void loop(){
+	Serial.println("iterating");
 
-	takeSample();
+    takeSample();
+  
+    writeJSONtoSD(temperature, conductivity, millis()-lastTime);
+    Serial.println("returned from writing to SD");
+    //dataFile.println(str);
+    //dataFile.close();
+    // print to the serial port too:
+    
+    // for next iteration
+    lastTime = millis();
+    sampleNumber++;
+  // if the file isn't open, pop up an error:
+ 
+  delay(10000);
+}
 
-	Serial.print("temp: ");
-	Serial.println(temperature);
-	Serial.print("cond: ");
-	Serial.println(conductivity);
+void writeJSONtoSD(float temp, float cond, unsigned long time){
+  // construct JSON obj for individual sample
+  dataFile = SD.open("datalog.txt", FILE_WRITE);
+  
+  String sample;
+  sample += "{\"DeviceID\":\"";
+  sample += device_id;
+
+  sample += "\",\n\"SampleID\":";
+  sample += (String)sampleNumber;
+  
+  sample += ",\n\"TimeSinceLast\":";
+  sample += (String)time;
+  
+  sample += ",\n\"Temperature\":";
+  sample += (String)temp;
+  
+  //dtostrf(conductivity,2,2,buf);
+  sample += ",\n\"Conductivity\":";
+  sample += (String)cond;
+  sample+="\n}";
+
+  if(dataFile){
+    dataFile.println(sample);
+    dataFile.close();
+    Serial.println("saved sample to SD:");
+    Serial.println(sample);
+
+  }
+  else{
+    Serial.println("error opening datalog.txt");
+  } 
 }
 
 void takeSample(){
-  
+  Serial.println("taking sample");
   int i;
   for(i=0; i<25; i++){ //get conductivity average over 25 samples
     AnalogValueTotal += analogRead(ECsensorPin);    
@@ -56,6 +117,7 @@ void takeSample(){
 }
 
 float tempProcess(bool ch){ //returns temperature in degrees C
+  Serial.println("tempProcess");
   static byte data[12];
   static byte addr[8];
   static float temperatureSum;

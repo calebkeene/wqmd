@@ -4,9 +4,20 @@
 #define StartConvert 0
 #define ReadTemperature 1
 
+#include <SD.h>
+/*
+ The circuit:
+ * analog sensors on analog pins 0, 1, and 2
+ * SD card attached to SPI bus as follows:
+ ** MOSI - pin 11
+ ** MISO - pin 12
+ ** CLK - pin 13
+ ** CS - pin 8
+*/
 
 byte ECsensorPin = A1;  //EC Meter analog output,pin on analog 1
 byte DS18B20_Pin = 10; //DS18B20 signal (temp sensor), pin on digital 10
+const int chipSelect = 8; //SS on Dig pin 8
 
 unsigned long AnalogValueTotal = 0; // for averaging conductivity
 unsigned int AnalogAverage = 0, averageVoltage=0;
@@ -23,8 +34,16 @@ unsigned long lastSampleTime = 0;
 
 void setup(){
   Serial.begin(115200);
+  pinMode(chipSelect, OUTPUT);
   pinMode(ECsensorPin, INPUT); //conductivity sensor
   pinMode(2, INPUT); // switch on pin 2
+  // see if the card is present and can be initialized:
+  if (!SD.begin(chipSelect)) {
+    Serial.println("Card failed, or not present");
+    // don't do anything more:
+    return;
+  }
+  Serial.println("card initialized.");
 }
 
 void loop(){
