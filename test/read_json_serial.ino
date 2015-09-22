@@ -1,13 +1,4 @@
 
-void setup(){
-  Serial.begin(9600);
-}
-
-void loop(){
-
-}
-
-void readSerial(){
 
   /* ---------- Updated to API V2 ----------
 
@@ -27,6 +18,17 @@ void readSerial(){
     Status = 083 116 097 116 117 115 -> sum = 644
 
     */
+
+void setup(){
+  Serial.begin(9600);
+}
+
+void loop(){
+
+}
+
+void readSerial(){
+
   int cmd = 0;
 
   if (Serial.available()){

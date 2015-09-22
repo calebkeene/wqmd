@@ -3,11 +3,11 @@
 String device_id = "fluid_sol_01";
 int sampleNumber = 0;
 unsigned long lastTime = 0;
-String values[5];
+String values[10];
 int cmd = 0;
 
 void setup(){
-  Serial.begin(9600);
+  Serial.begin(115200);
   buildDummyMeasurements();
 }
 
@@ -16,7 +16,6 @@ void loop(){
     readSerial();
   }
 }
-
 
 void readSerial(){
   
@@ -58,7 +57,7 @@ void readSerial(){
 void buildDummyMeasurements(){ // just generate some test data to send (5 measurements)
  
   int i;
-  for(i = 0; i<5; i++){
+  for(i = 0; i<10; i++){
     float t = random(10, 30);
     float c = random(500, 2500);
     values[i] = serialiseToJson(t, c, ms_to_min(millis() - lastTime));
@@ -82,9 +81,10 @@ void sendAllSamples(){
   Serial.println("\"Status\": \"ready\",");
   Serial.println("\"samples\": [");
 
-  for(i=0; i<5; i++){
+  for(i=0; i<10; i++){
     //send one measurement at a time
     Serial.print(values[i]);
+    delay(200);
     if(i==4){
       Serial.println("]");
     }
