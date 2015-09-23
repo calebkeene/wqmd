@@ -61,33 +61,18 @@ void writeJSONtoSD(float temp, float cond, unsigned long time){
   // construct JSON obj for individual sample
   dataFile = SD.open("datalog.txt", FILE_WRITE);
   
-  String sample;
-  sample += "{\"DeviceID\":\"";
-  sample += device_id;
-
-  sample += "\",\n\"SampleID\":";
-  sample += (String)sampleNumber;
-  
-  sample += ",\n\"TimeSinceLast\":";
-  sample += (String)time;
-  
-  sample += ",\n\"Temperature\":";
-  sample += (String)temp;
-  
-  //dtostrf(conductivity,2,2,buf);
-  sample += ",\n\"Conductivity\":";
-  sample += (String)cond;
-  sample+="\n}";
+  String sample = serialiseToJson(temp, cond, time); //build JSON string
 
   if(dataFile){
     dataFile.println(sample);
     dataFile.close();
-    Serial.println("saved sample to SD:");
-    Serial.println(sample);
+    //Serial.println("saved sample to SD:");
+    //Serial.println(sample);
 
   }
   else{
-    Serial.println("error opening datalog.txt");
+    // only print for testing, remove this for actual code
+    //Serial.println("error opening datalog.txt");
   } 
 }
 
@@ -112,7 +97,7 @@ void takeSample(){
   if(voltageCoefficient <= 448)conductivity=6.84*voltageCoefficient-64.32;//1ms/cm<EC<=3ms/cm
   else if(voltageCoefficient <= 1457)conductivity=6.98*voltageCoefficient-127;//3ms/cm<EC<=10ms/cm
   else conductivity = 5.3*voltageCoefficient+2278;//10ms/cm<EC<20ms/cm
-  conductivity/=1000; //convert us/cm to ms/cm
+  //conductivity/=1000; //convert us/cm to ms/cm
  
 }
 

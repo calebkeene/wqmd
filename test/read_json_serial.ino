@@ -46,12 +46,14 @@ void readSerial(){
 
   if(cmd == 416){// Test
   //take single sample, return it
+  cmd = 0;
   Serial.println(sendSingleSample()); // will need to define single sample function
   
   }
   else if(cmd == 1216){// RetrieveData
   //send all recent data
-    sendAllData();
+    cmd = 0;
+    sendAllSamples();
   }
   else if(cmd == 644){// Status
     /*
@@ -59,6 +61,8 @@ void readSerial(){
     check if there is data on SD, if not send (JSON) -> "{"status":"nodata"}"
     perform some kind of self check, if all systems OK, send -> "{"status":"ready"}"
     */
+    cmd = 0;
+    sendStatus();
   }
 
  	Serial.println(cmd);
