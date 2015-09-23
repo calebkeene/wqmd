@@ -14,6 +14,7 @@
 
 #include <Arduino.h>
 
+
 #define NO_ENTER (0)
 #define NO_ACTION (0)
 #define NO_EXIT (0)
@@ -67,14 +68,18 @@ class FiniteStateMachine {
                 void setTimeSinceLast(unsigned long tsl);
 		unsigned long getTimeSinceLast() const;
 		void resetTimeSinceLast();
+		unsigned long getWakeUpTime() const;
+
+		void setWakeUpTime(unsigned long wakeUp);
 		
 	private:
 		bool 	needToTriggerEnter;
 		State* 	currentState;
 		State* 	nextState;
-		unsigned long stateChangeTime;
-		unsigned long timeSinceLast;
-		unsigned long measurementInterval=30;
+		unsigned long stateChangeTime = 0;
+		unsigned long timeSinceLast = 0;
+		unsigned long wakeUpTime = 0;
+		unsigned long measurementInterval = 0;
 };
 
 #endif
