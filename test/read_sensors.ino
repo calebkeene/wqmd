@@ -1,111 +1,103 @@
-#include <ArduinoJson.h>
 #include <OneWire.h>
 #include <SD.h>
 
 #define StartConvert 0
 #define ReadTemperature 1
 
-
 byte ECsensorPin = A1;  //EC Meter analog output,pin on analog 1
-byte DS18B20_Pin = 10; //DS18B20 signal (temp sensor), pin on digital 10
+byte DS18B20_Pin = 2;  //DS18B20 signal (temp sensor), pin on digital 10
+byte nMOS_Pin = 5;
 const int chipSelect = 8;
 File dataFile;
 
 int sampleNumber = 1;
 String device_id = "fluid_sol_01";
-
+unsigned int analogSampleInterval=25,tempSampleInterval=850; 
 
 unsigned long lastTime = 0;
-unsigned long AnalogValueTotal = 0; // for averaging conductivity
-unsigned int AnalogAverage = 0, averageVoltage=0;
+unsigned long analogValTotal = 0; // for averaging conductivity
+unsigned int analogAv = 0, avVoltage=0;
 float temperature, conductivity;
 //Temperature chip i/o
 OneWire ds(DS18B20_Pin);  // on digital pin 10
 
 void setup(){
-  Serial.begin(9600);
-  pinMode(ECsensorPin, INPUT); //conductivity sensor
-
-  pinMode(DS18B20_Pin, INPUT); // Dallas onewire temp sensor
-  pinMode(chipSelect, OUTPUT);
-
-// see if the card is present and can be initialized:
+  Serial.begin(115200);
+  for (byte thisReading = 0; thisReading < numReadings; thisReading++)
+    readings[thisReading] = 0;
+  tempProcess(StartConvert);
+  analogSampleTime=millis();// see if the card is present and can be initialized:
+  tempSampleTime=millis();
+  /*
   if (SD.begin(chipSelect)){
     Serial.println("card initialized.");
   }
   else{
     Serial.println("card initialized.");
   }
+  */
 }
 
 void loop(){
-	Serial.println("iterating");
 
-    takeSample();
-  
-    writeJSONtoSD(temperature, conductivity, millis()-lastTime);
-    Serial.println("returned from writing to SD");
-    //dataFile.println(str);
-    //dataFile.close();
-    // print to the serial port too:
-    
-    // for next iteration
-    lastTime = millis();
+  // 20 mins has passed
+  //if(millis() - lastTime > 1200000){
+  if(millis() - lastTime > 60000){ // 1 min (for testing)
+    Serial.println("one minute has passed!");
+    digitalWrite(nMOS_Pin, HIGH); // turn on sensors
+    String sample = takeSample();
+    digitalWrite(nMOS_Pin, LOW);
     sampleNumber++;
-  // if the file isn't open, pop up an error:
+
+  }
+  lastTime = millis();
+
  
-  delay(10000);
+  delay(100);
 }
 
-void writeJSONtoSD(float temp, float cond, unsigned long time){
-  // construct JSON obj for individual sample
-  dataFile = SD.open("datalog.txt", FILE_WRITE);
+String takeSample(){
   
-  String sample = serialiseToJson(temp, cond, time); //build JSON string
-
-  if(dataFile){
-    dataFile.println(sample);
-    dataFile.close();
-    //Serial.println("saved sample to SD:");
-    //Serial.println(sample);
-
+  if(millis()-analogSampleTime>=analogSampleInterval)  {
+    analogSampleTime=millis();
+     // subtract the last reading:
+    analogValTotal = analogValTotal - readings[index];
+    // read from the sensor:
+    readings[index] = analogRead(ECsensorPin);
+    // add the reading to the total:
+    analogValTotal = analogValTotal + readings[index];
+    // advance to the next position in the array:
+    index = index + 1;
+    // if we're at the end of the array...
+    if (index >= numReadings)
+    // ...wrap around to the beginning:
+    index = 0;
+    // calculate the average:
+    analogAv = analogValTotal/numReadings;
   }
-  else{
-    // only print for testing, remove this for actual code
-    //Serial.println("error opening datalog.txt");
-  } 
-}
 
-void takeSample(){
-  Serial.println("taking sample");
-  int i;
-  for(i=0; i<25; i++){ //get conductivity average over 25 samples
-    AnalogValueTotal += analogRead(ECsensorPin);    
+  if(millis()-tempSampleTime>=tempSampleInterval){
+    tempSampleTime=millis();
+    temperature = TempProcess(ReadTemperature);  // read the current temperature from the  DS18B20
+    TempProcess(StartConvert);                   //after the reading,start the convert for next reading
   }
-  AnalogAverage = AnalogValueTotal / 25;
-
-  tempProcess(StartConvert);
-  delay(800); // need to wait at least 750ms after conversion before reading temp (ensures accuracy)
-  
-  temperature = tempProcess(ReadTemperature);
-  averageVoltage=AnalogAverage*(float)5000/1024; //millivolt average,from 0mv to 4995mV
-
   //temperature compensation formula: fFinalResult(25^C) = fFinalResult(current)/(1.0+0.0185*(fTP-25.0));
-  float tempCoefficient=1.0+0.0185*(temperature-25.0);
-  float voltageCoefficient=(float)averageVoltage/tempCoefficient;
+  
+  //float tempCoefficient=1.0+0.0185*(temperature-25.0);   
+  //float compensatedVoltage=(float)averageVoltage/tempCoefficient; 
 
-  if(voltageCoefficient <= 448)conductivity=6.84*voltageCoefficient-64.32;//1ms/cm<EC<=3ms/cm
-  else if(voltageCoefficient <= 1457)conductivity=6.98*voltageCoefficient-127;//3ms/cm<EC<=10ms/cm
-  else conductivity = 5.3*voltageCoefficient+2278;//10ms/cm<EC<20ms/cm
-  //conductivity/=1000; //convert us/cm to ms/cm
- 
+  //get conductivity as linear function of analogue voltage
+  avVoltage=analogAv*(float)5000/1024;
+  conductivity = 35.813*avVoltage+148.47;
+
+  return serialiseToJSON()
+  
 }
 
 float tempProcess(bool ch){ //returns temperature in degrees C
-  Serial.println("tempProcess");
   static byte data[12];
   static byte addr[8];
-  static float temperatureSum;
+  static float tempSum;
   if(!ch){
     if ( !ds.search(addr)) {
       Serial.println("no more sensors on chain, reset search");
@@ -135,7 +127,7 @@ float tempProcess(bool ch){ //returns temperature in degrees C
     byte MSB = data[1];
     byte LSB = data[0];        
     float tempRead = ((MSB << 8) | LSB); //using twos complement
-    temperatureSum = tempRead / 16;
+    tempSum = tempRead / 16;
   }
-  return temperatureSum;  
+  return tempSum;
 }
