@@ -1,155 +1,141 @@
-#include <ArduinoJson.h>
 #include <OneWire.h>
+#include <SD.h>
 
 #define StartConvert 0
 #define ReadTemperature 1
 
-#include <SD.h>
-/*
- The circuit:
- * analog sensors on analog pins 0, 1, and 2
- * SD card attached to SPI bus as follows:
- ** MOSI - pin 11
- ** MISO - pin 12
- ** CLK - pin 13
- ** CS - pin 8
-*/
-
 byte ECsensorPin = A1;  //EC Meter analog output,pin on analog 1
-byte DS18B20_Pin = 10; //DS18B20 signal (temp sensor), pin on digital 10
-const int chipSelect = 8; //SS on Dig pin 8
+byte DS18B20_Pin = 2;  //DS18B20 signal (temp sensor), pin on digital 10
+byte nMOS_Pin = 5;
+const int chipSelect = 4;
+File dataFile;
 
-unsigned long AnalogValueTotal = 0; // for averaging conductivity
-unsigned int AnalogAverage = 0, averageVoltage=0;
+int sampleNumber = 1;
+String device_id = "fluid_sol_01";
+unsigned int analogSampleInterval=25,tempSampleInterval=850; 
+
+unsigned long lastTime = 0;
+unsigned long analogValTotal = 0; // for averaging conductivity
+unsigned int analogAv = 0, avVoltage=0;
 float temperature, conductivity;
 //Temperature chip i/o
 OneWire ds(DS18B20_Pin);  // on digital pin 10
 
-int bluetoothSW;//toggle switch
-int sampleNumber = 0;
-
-String data[50]; //store samples
-String device_id = "fluid_sol_01";
-unsigned long lastSampleTime = 0;
-
 void setup(){
   Serial.begin(115200);
-  pinMode(chipSelect, OUTPUT);
-  pinMode(ECsensorPin, INPUT); //conductivity sensor
-  pinMode(2, INPUT); // switch on pin 2
-  // see if the card is present and can be initialized:
-  if (!SD.begin(chipSelect)) {
-    Serial.println("Card failed, or not present");
-    // don't do anything more:
-    return;
+    pinMode(10, OUTPUT); // need this to be set to output for SD module
+  for (byte thisReading = 0; thisReading < numReadings; thisReading++)
+    readings[thisReading] = 0;
+  tempProcess(StartConvert);
+  analogSampleTime=millis();// see if the card is present and can be initialized:
+  tempSampleTime=millis();
+  /*
+  if (SD.begin(chipSelect)){
+    Serial.println("card initialized.");
   }
-  Serial.println("card initialized.");
+  else{
+    Serial.println("card initialized.");
+  }
+  */
 }
 
 void loop(){
   
-  bluetoothSW = digitalRead(2);
-  if(bluetoothSW == 1){
-    readSerial(); // will send data if it is being requested
+  //if phone with WaiNZ mobile app is paired, get command
+  if(Serial.available()){
+    readSerial();
   }
-  if(millis() >= (lastSampleTime + 1200000)){ // ~20 mins has passed since last sample taken
-      takeSample();
+
+  //if 20 minutes has elapsed since last sample, take a new one
+  if(millis() - lastTime > 1200000){
+    digitalWrite(nMOS_Pin, HIGH); // turn on sensors
+    String newSample = takeSample();
+    writeSampleToSD(newSample); // store sample on SD card
+    digitalWrite(nMOS_Pin, LOW); // turn off sensors
   }
-}
 
-void takeSample(){
-  
-  int i;
-  for(i=0; i<25; i++){ //get conductivity average over 25 samples
-    AnalogValueTotal += analogRead(ECsensorPin);    
-  }
-  AnalogAverage = AnalogValueTotal / 25;
-
-  tempProcess(StartConvert);
-  delay(800); // need to wait at least 750ms after conversion before reading temp (ensures accuracy)
-  
-  temperature = tempProcess(ReadTemperature);
-  averageVoltage=AnalogAverage*(float)5000/1024; //millivolt average,from 0mv to 4995mV
-
-  //temperature compensation formula: fFinalResult(25^C) = fFinalResult(current)/(1.0+0.0185*(fTP-25.0));
-  float tempCoefficient=1.0+0.0185*(temperature-25.0);
-  float voltageCoefficient=(float)averageVoltage/tempCoefficient;
-
-  if(voltageCoefficient <= 448)conductivity=6.84*voltageCoefficient-64.32;//1ms/cm<EC<=3ms/cm
-  else if(voltageCoefficient <= 1457)conductivity=6.98*voltageCoefficient-127;//3ms/cm<EC<=10ms/cm
-  else conductivity = 5.3*voltageCoefficient+2278;//10ms/cm<EC<20ms/cm
-  conductivity/=1000; //convert us/cm to ms/cm
-  // Serialise to measurement to JSON
-  serialiseToJson(temperature, conductivity);
+ 
 }
 
 void readSerial(){
   
-  char json[150]; // Allocate some space for the string
   if (Serial.available()){
-    
-    char currChar; // store current character being read
-    byte index = 0; // Index into array; where to store the character
     unsigned long start_time = millis();
-
     while(Serial.available() > 0){
-      if(index < (sizeof(json)-1)){ // keep within array index bounds
-        currChar = Serial.read(); // Read char
-        json[index] = currChar; 
-        index++; // add to String
-        json[index] = '\0'; // Null terminate the string
-      }
+        cmd += Serial.read(); // Read char, add to ASCII sum
       // if greater than 10 seconds have passed, break out (timeout)
       if((millis() - start_time) > 10000){
         break;
       }
     }
   }
-  // now parse String (char array) to JSON object
-  StaticJsonBuffer<16> jsonBuffer;
-  JsonObject& root = jsonBuffer.parseObject(json);
-
-  if (!root.success()){
-    Serial.println("parseObject() failed");
-    return;
-  }
-
-  const char* cmd = root["cmd"].asString(); //explicit cast on the end
-  if(strcmp(cmd, "RetrieveData") == 0){ //if command from mobile app is RetrieveData
-    if(isData() == 1){ //if there are any measurements to send
-      sendData();
-    }
-  }
-}
-
-int isData(){
-  // just check if there is at least 1 measurement
-  if(sizeof(data[0]) > 1) return 1;
-  else return 0;
-}
-
-void sendData(){
-
-  int i;
-  String json = "{\n\"Samples\":[";
   
-  for(i=0; i<=sampleNumber; i++){
-    //read samples from data array, serialise to JSON
-    json += data[i];
-    if(i !=sampleNumber){ //only add comma between JSON objs if not at end of data array
-      json += ",\n";
-    }
-  }
-  json += "\n]\"TimeSinceLast\":";
-  json += (String)ms_to_min(millis() - lastSampleTime);
-  json += "\n}";
+  if(cmd == 416){// Test
+    cmd = 0;
+    //take single sample, return it
+    //Serial.println("Test command received");
+    sendSingleSample(); // will need to define single sample function
   
-  //issue with this printing at the moment
-  // undefined reference to `Print::print(String const&)'
-  Serial.print(json); // send data
+  }
+  else if(cmd == 1216){// RetrieveData
+  //send all recent data
+    cmd = 0;
+    //Serial.println("RetrieveData command received");
+    sendAllSamples();
+  }
+  else if(cmd == 644){// Status
+    cmd = 0;
+    if(hasData() == 1){
+      Serial.println("{\"status\":\"ready\"}");
+    }
+    else{
+      Serial.println("{\"status\":\"nodata\"}");
+    }
+     //just send ready status (for testing)
+    /*
+    poll status, return to phone
+    check if there is data on SD, if not send (JSON) -> "{"status":"nodata"}"
+    perform some kind of self check, if all systems OK, send -> "{"status":"ready"}"
+    */
+  }
 }
 
-void serialiseToJson(float temp, float cond){
+String takeSample(){
+  //these timing constraints should always be true since we're waiting 20 mins,
+  // but keep them in anyway
+  if(millis()-analogSampleTime >= analogSampleInterval)  {
+    analogSampleTime=millis();
+     // subtract the last reading:
+    analogValTotal = analogValTotal - readings[index];
+    // read from the sensor:
+    readings[index] = analogRead(ECsensorPin);
+    // add the reading to the total:
+    analogValTotal = analogValTotal + readings[index];
+    // advance to the next position in the array:
+    index = index + 1;
+    // if we're at the end of the array...
+    if (index >= numReadings)
+    // ...wrap around to the beginning:
+    index = 0;
+    // calculate the average:
+    analogAv = analogValTotal/numReadings;
+  }
+
+  if(millis()-tempSampleTime >= tempSampleInterval){
+    tempSampleTime=millis();
+    temperature = TempProcess(ReadTemperature);  // read the current temperature from the  DS18B20
+    TempProcess(StartConvert);                   //after the reading,start the convert for next reading
+  }
+
+  avVoltage=analogAv*(float)5000/1024;
+  conductivity = 35.813*avVoltage+148.47; //linear function obtained from measurements
+  timeSinceLast = ms_to_min(millis()- lastTime);
+
+  return serialiseToJson(temperature, conductivity, timeSinceLast);
+  
+}
+
+String serialiseToJson(float temp, float cond, unsigned long timeSinceLast){
   // construct JSON obj for individual sample
   String sample;
   sample += "{\"DeviceID\":\"";
@@ -157,31 +143,32 @@ void serialiseToJson(float temp, float cond){
 
   sample += "\",\n\"SampleID\":";
   sample += (String)sampleNumber;
-  
+
   sample += ",\n\"TimeSinceLast\":";
-  sample += (String)ms_to_min(millis() - lastSampleTime);
-  
+  sample += (String)timeSinceLast;
+
   sample += ",\n\"Temperature\":";
   sample += (String)temp;
-  
+
   //dtostrf(conductivity,2,2,buf);
   sample += ",\n\"Conductivity\":";
   sample += (String)cond;
   sample+="\n}";
 
-  data[sampleNumber] = sample;
-  lastSampleTime = millis();
-  sampleNumber++; //iterate for next sample
+  lastTime = millis();
+  sampleNumber++;
+
+  return Sample;
 }
 
-unsigned long ms_to_min(unsigned long milli_seconds){
-  return (milli_seconds * 60000);
+unsigned long ms_to_min(unsigned long ms){
+  return ms/60000;
 }
 
 float tempProcess(bool ch){ //returns temperature in degrees C
   static byte data[12];
   static byte addr[8];
-  static float temperatureSum;
+  static float tempSum;
   if(!ch){
     if ( !ds.search(addr)) {
       Serial.println("no more sensors on chain, reset search");
@@ -211,7 +198,7 @@ float tempProcess(bool ch){ //returns temperature in degrees C
     byte MSB = data[1];
     byte LSB = data[0];        
     float tempRead = ((MSB << 8) | LSB); //using twos complement
-    temperatureSum = tempRead / 16;
+    tempSum = tempRead / 16;
   }
-  return temperatureSum;  
+  return tempSum;
 }

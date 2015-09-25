@@ -1,5 +1,3 @@
-#include <ArduinoJson.h>
-
 String device_id = "fluid_sol_01";
 int sampleNumber = 0;
 unsigned long lastTime = 0;
