@@ -2,7 +2,9 @@
 #include <FiniteStateMachine.h>
 #include <OneWire.h>
 #include <LowPower.h>
-#include <avr/interrupt.h> 
+#include <avr/power.h> 
+#include <avr/sleep.h>
+#include <avr/wdt.h>
 #include <EEPROM.h>
 
 #define StartConvert 0
@@ -48,8 +50,8 @@ void isr()
  void setup() {
 //mosFET enable pin
  pinMode(mosFETPin, OUTPUT);
-//temp set measurement interval to 20 mins
- fsm.setMeasurementInterval(1200000);
+//temp set measurement interval to 120 seconds
+ fsm.setMeasurementInterval(585000);
   //initiate the serial connection
   Serial.begin(115200);
   
@@ -130,9 +132,11 @@ void shutdownDisconnection(){/*log error - unexpected event*/}
 //State Measure Event Functions
 void startMeasure(){}
 void energySavingMeasure(){
+  
   fsm.transitionTo(measure);  
 }
 void pairedMeasure(){
+ 
   //APIv2 has test cmd requesting measurement, don't transition from paired
   takeSample(); 
   fsm.measureEndEvent();
@@ -143,11 +147,14 @@ void shutdownMeasure(){}
 void startMeasureEnd(){}
 void energySavingMeasureEnd(){}
 void pairedMeasureEnd(){
-  fsm.resetTimeSinceLast();
+  //reset time
+    fsm.resetTimeSinceLast(); 
   }
 void measureMeasureEnd(){
  //measurements have finished transition back to energy saving mode
-  fsm.resetTimeSinceLast();
+
+    //reset time
+    fsm.resetTimeSinceLast();
   fsm.transitionTo(energySaving);  
 }
 void shutdownMeasureEnd(){}
@@ -167,61 +174,79 @@ void energySavingAction(){
   unsigned long measurementInterval = fsm.getMeasurementInterval();
   unsigned long wut =  fsm.getWakeUpTime();
  
- 
   //test code will need to be updated to add : wait here for 'measurement interval' seconds
   //write HIGH to mosFet pin to power down sensors and sd card
   digitalWrite(mosFETPin, HIGH); 
  
   //hack as interrupts aren't working - sleep for a short time but dont oversleep
   //still to config low power settings
-   period_t sleep_time;
-   byte addTime = 8;
+  period_t sleep_time;
+  int addTime = 0;
   if((timeSinceLast+8000)<measurementInterval){
     sleep_time = SLEEP_8S;
+    addTime=8000;
  
   }
   else if ((timeSinceLast+4000)<measurementInterval){
     sleep_time= SLEEP_4S;
-    addTime=4;
+    addTime=4000;
  
   }
    else if ((timeSinceLast+2000)<measurementInterval){
     sleep_time= SLEEP_2S;
-    addTime=2;
+    addTime=2000;
  
   } 
     else if ((timeSinceLast+1000)<measurementInterval){
     sleep_time= SLEEP_1S;
-    addTime=1;  
+    addTime=1000;  
+ 
+  }else if ((timeSinceLast+500)<measurementInterval){
+    sleep_time= SLEEP_500MS;
+    addTime=500;  
+  }else if ((timeSinceLast+250)<measurementInterval){
+    sleep_time= SLEEP_250MS;
+    addTime=250;  
+  }else if ((timeSinceLast+120)<measurementInterval){
+    sleep_time= SLEEP_120MS;
+    addTime=120;  
  
   }
-  
   unsigned long timeAwake = millis() - wut;
-  float tsl = ((float)(timeSinceLast + timeAwake))/1000;
-  eepromWriteFloat(0,tsl);
-  
-  LowPower.powerDown(sleep_time, ADC_OFF, BOD_OFF);
-  
-  fsm.setWakeUpTime(millis());
-  tsl = eepromReadFloat(0);
-  fsm.setTimeSinceLast(((tsl + addTime)*1000));
+  unsigned long curTsl = timeSinceLast + timeAwake;
+ float tsl = (float) curTsl/1000;
  
-  //  Serial.println(fsm.getTimeSinceLast()); 
+  //if we need to sleep save time details as timer shuts off
+  if(addTime>0){   
+    eepromWriteFloat(0,tsl);
+    LowPower.powerDown(sleep_time, ADC_OFF, BOD_OFF);
+    fsm.setWakeUpTime(millis());
+    tsl = eepromReadFloat(0);
+  }
+
+  
+  fsm.setTimeSinceLast(curTsl+addTime);
  
+
   //if time to measure FSM EVENT - transition to measure state
-  //turn the sensors and sd card back on
+  //turn the sensors and sd card mback on
   if(fsm.getTimeSinceLast()>measurementInterval){
-  //  Serial.println("EnergySaving->Measure");
+    Serial.println("EnergySaving->Measure");
+    //reset eeprom to 0
+   // eepromWriteFloat(0,0.0);
+    //turn the sensors back on
     digitalWrite(mosFETPin, LOW); 
     fsm.measureEvent();
   }
 }
+
+
 void pairedAction(){
  
   //check serial connection, parse incoming data, return measurements 
   readSerial(); // will send data if it is being requested
   //temp - finished transmitting, just go back to energysaving state 
-  // Serial.println("Connected..Paired->EnergySaving");   
+   Serial.println("Connected..Paired->EnergySaving");   
   //FSM DISCONNECTION EVENT - transition to energy saving state
   fsm.disconnectionEvent(); 
 }
@@ -230,7 +255,7 @@ void measureAction(){
   //take a measurement and store it  
   takeSample();
 
-//  Serial.println("Measure->EnergySaving");
+  Serial.println("Measure->EnergySaving");
   //FSM MEASURE EVENT - transition to energy saving state
   fsm.measureEndEvent();
 }
@@ -242,7 +267,8 @@ void shutdownAction(){
 //-----------Caleb's -  General Methods to measure and to transmit data -----------------
 
 void takeSample(){
-  
+  Serial.print("taking sample");
+  Serial.print(analogRead(ECsensorPin));
   int i;
   for(i=0; i<25; i++){ //get conductivity average over 25 samples
     AnalogValueTotal += analogRead(ECsensorPin);    
