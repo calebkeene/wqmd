@@ -9,9 +9,11 @@ byte ECsensorPin = A1;  //EC Meter analog output,pin on analog 1
 byte DS18B20_Pin = 2;  //DS18B20 signal (temp sensor), pin on digital 2
 byte nMOS_Pin = 5; // FET for disconnecting sensors in between samples
 const int chipSelect = 4; // for SD
+const byte numReadings = 0;
+byte index = 0; // pos of current reading in array
+unsigned int readings[numReadings]; 
+unsigned long analogSampleTime, tempSampleTime;
 
-File dataFile;
-String currFileName;
 //int fileIndex = 1;
 int hasData = 0; // flag to set when first writing data to SD
 int cmd = 0;
@@ -35,8 +37,6 @@ void setup(){
   tempProcess(StartConvert);
   analogSampleTime=millis();// see if the card is present and can be initialised:
   tempSampleTime=millis();
-
-  currFileName = "data_1";
 
   if (SD.begin(chipSelect)){
     Serial.println("SD initialised");
@@ -92,18 +92,17 @@ void readSerial(){
 }
 
 void saveToSD(String sample){
-  File dataFile = SD.open(currFile, FILE_WRITE);
+  File dataFile = SD.open("data.txt", FILE_WRITE);
  
   if (dataFile){
     if(hasData == 0){ hasData = 1;} 
-    Serial.println("saving to dataFile");
+    Serial.println("saving to dataFile.txt");
     dataFile.println(sample); // write sample to file
     dataFile.close();
   }  
   else {
     // if the file isn't open, print error
-    String errMsg = "error opening " + currFileName;
-    Serial.println(errMsg);
+    Serial.println("error opening datafile.txt");
   } 
 }
 
@@ -119,14 +118,13 @@ void sendSingleSample(){
     Serial.println(sample);
     Serial.println("[dataend]");
     lastTime = millis(); // update lasTime for next sample
-  }
 }
 
 void sendAllSamples(){
 
   String temp;
   int count = 0;
-  File dataFile = SD.open(currFileName);
+  File dataFile = SD.open("data.txt");
   
   if (dataFile){ // file opened successfully
     if(hasData == 1){ // the file has had sample(s) written to it
@@ -187,12 +185,12 @@ String takeSample(){
 
   if(millis()-tempSampleTime >= tempSampleInterval){
     tempSampleTime=millis();
-    temperature = TempProcess(ReadTemperature);  // read the current temperature from the  DS18B20
-    TempProcess(StartConvert);                   //after the reading,start the convert for next reading
+    temperature = tempProcess(ReadTemperature);  // read the current temperature from the  DS18B20
+    tempProcess(StartConvert);                   //after the reading,start the convert for next reading
   }
   avVoltage=analogAv*(float)5000/1024;
   conductivity = 35.813*avVoltage+148.47; //linear function obtained from measurements
-  timeSinceLast = ms_to_min(millis()- lastTime);
+  unsigned long timeSinceLast = ms_to_min(millis()- lastTime);
 
   return serialiseToJson(temperature, conductivity, timeSinceLast);
 }
@@ -219,7 +217,7 @@ String serialiseToJson(float temp, float cond, unsigned long timeSinceLast){
   lastTime = millis();
   sampleNumber++;
 
-  return Sample;
+  return sample;
 }
 
 unsigned long ms_to_min(unsigned long ms){
