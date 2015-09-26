@@ -161,6 +161,13 @@ void  FiniteStateMachine::setTimeSinceLast(unsigned long tsl){
 unsigned long FiniteStateMachine::getTimeSinceLast()const {
   return timeSinceLast;
 }
+
+void  FiniteStateMachine::setWakeUpTime(unsigned long wut){
+  wakeUpTime = wut;
+}
+unsigned long FiniteStateMachine::getWakeUpTime()const {
+  return wakeUpTime;
+}
 void FiniteStateMachine::resetTimeSinceLast() {
   timeSinceLast = 0;
 }
