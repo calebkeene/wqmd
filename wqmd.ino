@@ -26,7 +26,7 @@ unsigned long analogValTotal = 0; // for averaging conductivity
 unsigned int analogAv = 0, avVoltage=0;
 float temperature, conductivity;
 //Temperature chip i/o
-OneWire ds(DS18B20_Pin);  // on digital pin 10
+OneWire ds(DS18B20_Pin);
 
 void setup(){
   Serial.begin(115200);
@@ -35,9 +35,9 @@ void setup(){
   for(byte thisReading = 0; thisReading < numReadings; thisReading++)
     readings[thisReading] = 0;
   tempProcess(StartConvert);
-  analogSampleTime=millis();// see if the card is present and can be initialised:
+  analogSampleTime=millis();
   tempSampleTime=millis();
-
+  // see if the card is present and can be initialised
   if (SD.begin(chipSelect)){
     Serial.println("SD initialised");
   }
@@ -57,16 +57,17 @@ void loop(){
     String newSample = takeSample();
     digitalWrite(nMOS_Pin, LOW); // turn off sensors
     saveToSD(newSample); // store sample on SD card
+    lastTime = millis();
   }
 }
 
 void readSerial(){
   
-  unsigned long start_time = millis();
+  unsigned long startTime = millis();
   while(Serial.available() > 0){
       cmd += Serial.read(); // Read char, add to ASCII sum
     // if greater than 10 seconds have passed, break out (timeout)
-    if((millis() - start_time) > 10000){
+    if((millis() - startTime) > 10000){
       break;
     }
   }
@@ -96,13 +97,13 @@ void saveToSD(String sample){
  
   if (dataFile){
     if(hasData == 0){ hasData = 1;} 
-    Serial.println("saving to dataFile.txt");
+    Serial.println("saving to data.txt");
     dataFile.println(sample); // write sample to file
     dataFile.close();
   }  
   else {
     // if the file isn't open, print error
-    Serial.println("error opening datafile.txt");
+    Serial.println("error opening data.txt");
   } 
 }
 
@@ -111,18 +112,15 @@ void sendSingleSample(){
     Serial.println("{\"status\":\"ready\"}");
 
     digitalWrite(nMOS_Pin, HIGH); 
-    takeSample();
+    String newSample = takeSample();
     digitalWrite(nMOS_Pin, LOW);
-
-    String sample = serialiseToJson(temperature, conductivity, ms_to_min(millis() - lastTime));
-    Serial.println(sample);
+    Serial.println(newSample);
     Serial.println("[dataend]");
-    lastTime = millis(); // update lasTime for next sample
 }
 
 void sendAllSamples(){
 
-  String temp;
+  String currSample;
   int count = 0;
   File dataFile = SD.open("data.txt");
   
@@ -135,20 +133,20 @@ void sendAllSamples(){
       while(dataFile.available()){
         
         char c = dataFile.read();
-        if(c != 125){
-          temp+= c;
+        if(c != 125){ // 125 = }
+          currSample+= c;
         }
         else{
-          temp+= "}";
-          Serial.println(temp);
+          currSample += "}";
+          Serial.println(currSample);
           delay(200); // delay to avoid phone JSON buffer overflow
-          temp = "";
+          currSample= ""; //reset temporary string for next sample
           count++;
         }
       }
       dataFile.close(); // close the file:
 
-        String endTime = "\n\"TimeSinceLast\":";
+      String endTime = "\n\"TimeSinceLast\": ";
       endTime += (String)(ms_to_min(millis()-lastTime));
       Serial.println(endTime);
       Serial.println("} [dataend]");
@@ -189,7 +187,8 @@ String takeSample(){
     tempProcess(StartConvert);                   //after the reading,start the convert for next reading
   }
   avVoltage=analogAv*(float)5000/1024;
-  conductivity = 35.813*avVoltage+148.47; //linear function obtained from measurements
+  //linear function obtained from measurements, valid from ~200uS/cm to 1.4mS/cm
+  conductivity = 35.813*avVoltage+148.47; 
   unsigned long timeSinceLast = ms_to_min(millis()- lastTime);
 
   return serialiseToJson(temperature, conductivity, timeSinceLast);
