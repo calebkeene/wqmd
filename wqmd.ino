@@ -31,7 +31,8 @@ OneWire ds(DS18B20_Pin);
 void setup(){
   Serial.begin(115200);
   pinMode(10, OUTPUT); // need this to be set to output for SD module
-  
+  pinMode(nMOS_Pin, OUTPUT);
+  digitalWrite(nMOS_Pin, LOW);
   for(byte thisReading = 0; thisReading < numReadings; thisReading++)
     readings[thisReading] = 0;
   tempProcess(StartConvert);
