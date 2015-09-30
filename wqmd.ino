@@ -9,42 +9,23 @@ byte ECsensorPin = A1;  //EC Meter analog output,pin on analog 1
 byte DS18B20_Pin = 2;  //DS18B20 signal (temp sensor), pin on digital 2
 byte nMOS_Pin = 5; // FET for disconnecting sensors in between samples
 const int chipSelect = 4; // for SD
-const byte numReadings = 0;
-byte index = 0; // pos of current reading in array
-unsigned int readings[numReadings]; 
-unsigned long analogSampleTime, tempSampleTime;
+const byte numReadings = 25;
 
-//int fileIndex = 1;
 int hasData = 0; // flag to set when first writing data to SD
 int cmd = 0;
 int sampleNumber = 1;
 String device_id = "fluid_sol_01";
-unsigned int analogSampleInterval=25,tempSampleInterval=850; 
 
 unsigned long lastTime = 0;
-unsigned long analogValTotal = 0; // for averaging conductivity
-unsigned int analogAv = 0, avVoltage=0;
 float temperature, conductivity;
 //Temperature chip i/o
 OneWire ds(DS18B20_Pin);
 
 void setup(){
   Serial.begin(115200);
+  Serial.println("starting setup");
   pinMode(10, OUTPUT); // need this to be set to output for SD module
   pinMode(nMOS_Pin, OUTPUT);
-  digitalWrite(nMOS_Pin, LOW);
-  for(byte thisReading = 0; thisReading < numReadings; thisReading++)
-    readings[thisReading] = 0;
-  tempProcess(StartConvert);
-  analogSampleTime=millis();
-  tempSampleTime=millis();
-  // see if the card is present and can be initialised
-  if (SD.begin(chipSelect)){
-    Serial.println("SD initialised");
-  }
-  else{
-    Serial.println("SD initialisation failed");
-  }
 }
 
 void loop(){
@@ -53,12 +34,21 @@ void loop(){
     readSerial();
   }
   //if 20 minutes has elapsed since last sample, take a new one
-  if(millis() - lastTime > 1200000){
-    digitalWrite(nMOS_Pin, HIGH); // turn on sensors
-    String newSample = takeSample();
-    digitalWrite(nMOS_Pin, LOW); // turn off sensors
-    saveToSD(newSample); // store sample on SD card
-    lastTime = millis();
+  if((millis() - lastTime) > 1200000) {
+
+    digitalWrite(nMOS_Pin, HIGH); // turn on sensors+SD
+    delay(1000);
+    tempProcess(StartConvert);   
+    delay(1000);
+    
+    if (SD.begin(chipSelect)){
+      String newSample = takeSample();
+      saveToSD(newSample); // store sample on SD card
+      delay(2000); // give SD some extra time to write before turning off
+      digitalWrite(nMOS_Pin, LOW); // turn off sensors
+    }
+    
+    else{ Serial.println("error initialising SD"); }
   }
 }
 
@@ -98,7 +88,6 @@ void saveToSD(String sample){
  
   if (dataFile){
     if(hasData == 0){ hasData = 1;} 
-    Serial.println("saving to data.txt");
     dataFile.println(sample); // write sample to file
     dataFile.close();
   }  
@@ -109,10 +98,14 @@ void saveToSD(String sample){
 }
 
 void sendSingleSample(){
-    Serial.println("[databegin]");
+    Serial.println("[databegin]"); // for v3 API
     Serial.println("{\"status\":\"ready\"}");
 
-    digitalWrite(nMOS_Pin, HIGH); 
+    digitalWrite(nMOS_Pin, HIGH); // turn on sensors+SD
+    delay(1000);
+    tempProcess(StartConvert);   
+    delay(1000);
+    
     String newSample = takeSample();
     digitalWrite(nMOS_Pin, LOW);
     Serial.println(newSample);
@@ -152,7 +145,7 @@ void sendAllSamples(){
       Serial.println(endTime);
       Serial.println("} [dataend]");
     }
-    else{Serial.println("\"Error\": \"nodata\"");} //file hasn't had samples written to it
+    else{ Serial.println("\"Error\": \"nodata\"");} //file hasn't had samples written to it
     
   } 
   else{
@@ -160,38 +153,22 @@ void sendAllSamples(){
     Serial.println("\"Error\": \"could not read SD\"");
   }
 }
-
 String takeSample(){
-  //these timing constraints should always be true since we're waiting 20 mins,
-  // but keep them in anyway for the time being
-  if(millis()-analogSampleTime >= analogSampleInterval)  {
-    analogSampleTime=millis();
-     // subtract the last reading:
-    analogValTotal = analogValTotal - readings[index];
-    // read from the sensor:
-    readings[index] = analogRead(ECsensorPin);
-    // add the reading to the total:
-    analogValTotal = analogValTotal + readings[index];
-    // advance to the next position in the array:
-    index = index + 1;
-    // at end of the array
-    if (index >= numReadings)
-    // ...wrap around to the beginning:
-    index = 0;
-    // calculate the average:
-    analogAv = analogValTotal/numReadings;
+  int i;
+  unsigned int analogValTotal = 0;
+  // calculate average analogue voltage (over 25 samples)
+  for(i=0; i<numReadings; i++){
+    analogValTotal += analogRead(ECsensorPin);
   }
+  unsigned int analogAv = analogValTotal/numReadings;
+  temperature = tempProcess(ReadTemperature);  // read the current temperature from the  DS18B20
+  unsigned int avVoltage=analogAv*(float)5000/1024;
 
-  if(millis()-tempSampleTime >= tempSampleInterval){
-    tempSampleTime=millis();
-    temperature = tempProcess(ReadTemperature);  // read the current temperature from the  DS18B20
-    tempProcess(StartConvert);                   //after the reading,start the convert for next reading
-  }
-  avVoltage=analogAv*(float)5000/1024;
-  //linear function obtained from measurements, valid from ~200uS/cm to 1.4mS/cm
-  conductivity = 35.813*avVoltage+148.47; 
-  unsigned long timeSinceLast = ms_to_min(millis()- lastTime);
-
+  // float TempCoefficient=1.0+0.0185*(temperature-25.0); //temp compensation (needs adjusting)
+  //linear function obtained from measurements, (Cond/AVoltage) valid from ~200uS/cm to 1.4mS/cm
+  conductivity = 7.1905*avVoltage+162.41; 
+  unsigned long timeSinceLast = ms_to_min(millis() - lastTime);
+  lastTime = millis();
   return serialiseToJson(temperature, conductivity, timeSinceLast);
 }
 
@@ -214,9 +191,7 @@ String serialiseToJson(float temp, float cond, unsigned long timeSinceLast){
   sample += (String)cond;
   sample+="\n}";
 
-  lastTime = millis();
   sampleNumber++;
-
   return sample;
 }
 
