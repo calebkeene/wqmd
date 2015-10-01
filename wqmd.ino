@@ -24,20 +24,22 @@ OneWire ds(DS18B20_Pin);
 
 void setup(){
   Serial.begin(115200);
-  Serial.println("starting setup");
   pinMode(10, OUTPUT); // need this to be set to output for SD module
+  
   pinMode(nMOS_Pin, OUTPUT);
   digitalWrite(nMOS_Pin, HIGH);
  
- if (SD.begin(chipSelect)){
-    Serial.println("SD initialisation successful");
+  if (SD.begin(chipSelect)){
+    Serial.println("{\"status\":\"ready\"}");
   }
+  
   else{ 
-    Serial.println("error initialising SD"); 
-    }
+    Serial.println("{\"status\":\"fatal\"}"); 
+  }
 }
 
 void loop(){
+  
   //if phone is paired over bluetooth, get command from App
   if(Serial.available()){
     readSerial();
@@ -48,9 +50,8 @@ void loop(){
   // 60 seconds for testing
   if((millis() - lastTime) > 60000){
     tempProcess(StartConvert);   
-    delay(1000);
+    delay(2000); // give conversion time
     String newSample = takeSample();
-    delay(1000);
     saveToSD(newSample); // store sample on SD card
     lastTime = millis();
   }
@@ -78,10 +79,14 @@ void readSerial(){
   }
   else if(cmd == 644){// Status
     if(hasData == 1){
+      Serial.println("[databegin]");
       Serial.println("{\"status\":\"ready\"}");
+      Serial.println("[dataend]");
     }
     else{
+      Serial.println("[databegin]");
       Serial.println("{\"status\":\"nodata\"}");
+      Serial.println("[dataend]");
     }
     cmd = 0;
   }
@@ -94,25 +99,25 @@ void saveToSD(String sample){
     if(hasData == 0){ hasData = 1;} 
     dataFile.println(sample); // write sample to file
     dataFile.close();
-  }  
-  else {
-    // if the file isn't open, print error
-    Serial.println("error opening data.txt");
-  } 
+  }
 }
 
 void sendSingleSample(){
-    Serial.println("[databegin]"); // for v3 API
+  
+  Serial.println("[databegin]"); // for v1.3 API
+  if(hasData == 1){  
     Serial.println("{\"status\":\"ready\"}");
 
-    delay(1000);
     tempProcess(StartConvert);   
-    delay(1000);
+    delay(2000);
     
     String newSample = takeSample();
-    digitalWrite(nMOS_Pin, LOW);
     Serial.println(newSample);
-    Serial.println("[dataend]");
+  }
+  else{ 
+    Serial.println("\"Status\": \"nodata\"");//file hasn't had samples written to it
+  }
+  Serial.println("[dataend]");
 }
 
 void sendAllSamples(){
@@ -121,9 +126,10 @@ void sendAllSamples(){
   int count = 0;
   File dataFile = SD.open("data.txt");
   
+  Serial.println("[databegin]");
   if (dataFile){ // file opened successfully
     if(hasData == 1){ // the file has had sample(s) written to it
-      Serial.println("[databegin] {");
+      Serial.println("{");
       Serial.println("\"Status\": \"ready\",");
       Serial.println("\"samples\": [");
       // read all samples off File
@@ -146,15 +152,17 @@ void sendAllSamples(){
       String endTime = "\n\"TimeSinceLast\": ";
       endTime += (String)(ms_to_min(millis()-lastTime));
       Serial.println(endTime);
-      Serial.println("} [dataend]");
+      Serial.println("}");
     }
-    else{ Serial.println("\"Error\": \"nodata\"");} //file hasn't had samples written to it
-    
+    else{ 
+      Serial.println("\"Status\": \"nodata\"");//file hasn't had samples written to it
+    }
   } 
   else{
     // if the file didn't open, print an error:
-    Serial.println("\"Error\": \"could not read SD\"");
+    Serial.println("\"Status\": \"fatal\"");
   }
+  Serial.println("[dataend]");
 }
 String takeSample(){
   int i;
@@ -196,16 +204,13 @@ String serialiseToJson(float temp, float cond, unsigned long timeSinceLast){
   sample += (String)cond;
   sample+="\n}";
 
-  sample+="\nmillis(): ";
-  sample+=(String)millis();
-
   //lastTime = millis();
   sampleNumber++;
   return sample;
 }
 
 unsigned long ms_to_min(unsigned long ms){
-  return ms/60000;
+  return (unsigned long)(ms/(float)60000);
 }
 
 float tempProcess(bool ch){ //returns temperature in degrees C
@@ -214,16 +219,14 @@ float tempProcess(bool ch){ //returns temperature in degrees C
   static float tempSum;
   if(!ch){
     if ( !ds.search(addr)) {
-      Serial.println("no more sensors on chain, reset search");
       ds.reset_search();
       return 0;
     }      
     if ( OneWire::crc8( addr, 7) != addr[7]) {
-      Serial.println("CRC not valid");
       return 0;
     }        
     if ( addr[0] != 0x10 && addr[0] != 0x28) {
-      Serial.print("Device not recognized");
+      Serial.println("\"Status\": \"temp\"");
       return 0;
     }      
     ds.reset();
