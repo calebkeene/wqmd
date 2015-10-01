@@ -17,7 +17,7 @@ int sampleNumber = 1;
 String device_id = "fluid_sol_01";
 
 unsigned long lastTime = 0;
-unsigned long tempLastTime;
+unsigned long lastSampleTime = 0;
 float temperature, conductivity;
 //Temperature chip i/o
 OneWire ds(DS18B20_Pin);
@@ -27,7 +27,14 @@ void setup(){
   Serial.println("starting setup");
   pinMode(10, OUTPUT); // need this to be set to output for SD module
   pinMode(nMOS_Pin, OUTPUT);
-  digitalWrite(nMOS_Pin, LOW);
+  digitalWrite(nMOS_Pin, HIGH);
+ 
+ if (SD.begin(chipSelect)){
+    Serial.println("SD initialisation successful");
+  }
+  else{ 
+    Serial.println("error initialising SD"); 
+    }
 }
 
 void loop(){
@@ -37,24 +44,14 @@ void loop(){
   }
   //if 20 minutes has elapsed since last sample, take a new one
   //if((millis() - lastTime) > 1200000) {
-  if((millis() - lastTime) > 10000){
-    tempLastTime = lastTime;
-
-    digitalWrite(nMOS_Pin, HIGH); // turn on sensors+SD
-    delay(2000);
+  
+  // 60 seconds for testing
+  if((millis() - lastTime) > 60000){
     tempProcess(StartConvert);   
-    delay(2000);
-    
-    if (SD.begin(chipSelect)){
-      String newSample = takeSample();
-      saveToSD(newSample); // store sample on SD card
-      delay(6000); // give SD some extra time to write before turning off
-      digitalWrite(nMOS_Pin, LOW); // turn off sensors
-      lastTime = millis();
-    }
-    
-    else{ Serial.println("error initialising SD"); }
-    digitalWrite(nMOS_Pin, LOW);
+    delay(1000);
+    String newSample = takeSample();
+    delay(1000);
+    saveToSD(newSample); // store sample on SD card
     lastTime = millis();
   }
 }
@@ -108,7 +105,6 @@ void sendSingleSample(){
     Serial.println("[databegin]"); // for v3 API
     Serial.println("{\"status\":\"ready\"}");
 
-    digitalWrite(nMOS_Pin, HIGH); // turn on sensors+SD
     delay(1000);
     tempProcess(StartConvert);   
     delay(1000);
@@ -176,12 +172,14 @@ String takeSample(){
   conductivity = 7.1905*avVoltage+162.41; 
   //unsigned long timeSinceLast = ms_to_min(millis() - lastTime);
   //lastTime = millis();
-  return serialiseToJson(temperature, conductivity, tempLastTime);
+  lastSampleTime = ms_to_min(millis() - lastTime);
+  return serialiseToJson(temperature, conductivity, lastSampleTime);
 }
 
 String serialiseToJson(float temp, float cond, unsigned long timeSinceLast){
   // construct JSON obj for individual sample
   String sample;
+
   sample += "{\"DeviceID\":\"";
   sample += device_id;
 
@@ -197,6 +195,9 @@ String serialiseToJson(float temp, float cond, unsigned long timeSinceLast){
   sample += ",\n\"Conductivity\":";
   sample += (String)cond;
   sample+="\n}";
+
+  sample+="\nmillis(): ";
+  sample+=(String)millis();
 
   //lastTime = millis();
   sampleNumber++;
