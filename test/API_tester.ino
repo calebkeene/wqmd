@@ -97,7 +97,7 @@ void sendAllSamples(){
   Serial.println("} [dataend]");
 }
 
-String serialiseToJson(float temp, float cond, unsigned long time){
+String serialiseToJson(float temp, float cond, unsigned long timeSinceLast){
   // construct JSON obj for individual sample
   String sample;
   sample += "{\"DeviceID\":\"";
@@ -107,7 +107,7 @@ String serialiseToJson(float temp, float cond, unsigned long time){
   sample += (String)sampleNumber;
   
   sample += ",\n\"TimeSinceLast\":";
-  sample += (String)time;
+  sample += (String)timeSinceLast;
   
   sample += ",\n\"Temperature\":";
   sample += (String)temp;
@@ -121,5 +121,5 @@ String serialiseToJson(float temp, float cond, unsigned long time){
 }
 
 unsigned long ms_to_min(unsigned long milli_seconds){
-  return (milli_seconds/1000)/60;
+  return (milli_seconds/60000;
 }
