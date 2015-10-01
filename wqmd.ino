@@ -17,6 +17,7 @@ int sampleNumber = 1;
 String device_id = "fluid_sol_01";
 
 unsigned long lastTime = 0;
+unsigned long tempLastTime;
 float temperature, conductivity;
 //Temperature chip i/o
 OneWire ds(DS18B20_Pin);
@@ -26,6 +27,7 @@ void setup(){
   Serial.println("starting setup");
   pinMode(10, OUTPUT); // need this to be set to output for SD module
   pinMode(nMOS_Pin, OUTPUT);
+  digitalWrite(nMOS_Pin, LOW);
 }
 
 void loop(){
@@ -34,21 +36,26 @@ void loop(){
     readSerial();
   }
   //if 20 minutes has elapsed since last sample, take a new one
-  if((millis() - lastTime) > 1200000) {
+  //if((millis() - lastTime) > 1200000) {
+  if((millis() - lastTime) > 10000){
+    tempLastTime = lastTime;
 
     digitalWrite(nMOS_Pin, HIGH); // turn on sensors+SD
-    delay(1000);
+    delay(2000);
     tempProcess(StartConvert);   
-    delay(1000);
+    delay(2000);
     
     if (SD.begin(chipSelect)){
       String newSample = takeSample();
       saveToSD(newSample); // store sample on SD card
-      delay(2000); // give SD some extra time to write before turning off
+      delay(6000); // give SD some extra time to write before turning off
       digitalWrite(nMOS_Pin, LOW); // turn off sensors
+      lastTime = millis();
     }
     
     else{ Serial.println("error initialising SD"); }
+    digitalWrite(nMOS_Pin, LOW);
+    lastTime = millis();
   }
 }
 
@@ -167,9 +174,9 @@ String takeSample(){
   // float TempCoefficient=1.0+0.0185*(temperature-25.0); //temp compensation (needs adjusting)
   //linear function obtained from measurements, (Cond/AVoltage) valid from ~200uS/cm to 1.4mS/cm
   conductivity = 7.1905*avVoltage+162.41; 
-  unsigned long timeSinceLast = ms_to_min(millis() - lastTime);
-  lastTime = millis();
-  return serialiseToJson(temperature, conductivity, timeSinceLast);
+  //unsigned long timeSinceLast = ms_to_min(millis() - lastTime);
+  //lastTime = millis();
+  return serialiseToJson(temperature, conductivity, tempLastTime);
 }
 
 String serialiseToJson(float temp, float cond, unsigned long timeSinceLast){
@@ -191,6 +198,7 @@ String serialiseToJson(float temp, float cond, unsigned long timeSinceLast){
   sample += (String)cond;
   sample+="\n}";
 
+  //lastTime = millis();
   sampleNumber++;
   return sample;
 }
