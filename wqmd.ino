@@ -78,16 +78,14 @@ void readSerial(){
     cmd = 0;
   }
   else if(cmd == 644){// Status
+    Serial.println("[databegin]");
     if(hasData == 1){
-      Serial.println("[databegin]");
       Serial.println("{\"status\":\"ready\"}");
-      Serial.println("[dataend]");
     }
     else{
-      Serial.println("[databegin]");
       Serial.println("{\"status\":\"nodata\"}");
-      Serial.println("[dataend]");
     }
+    Serial.println("[dataend]");
     cmd = 0;
   }
 }
@@ -149,7 +147,7 @@ void sendAllSamples(){
       }
       dataFile.close(); // close the file:
 
-      String endTime = "\n\"TimeSinceLast\": ";
+      String endTime = "] \n\"TimeSinceLast\": ";
       endTime += (String)(ms_to_min(millis()-lastTime));
       Serial.println(endTime);
       Serial.println("}");
@@ -159,7 +157,7 @@ void sendAllSamples(){
     }
   } 
   else{
-    // if the file didn't open, print an error:
+    // if the file didn't open, fatalerror:
     Serial.println("\"Status\": \"fatal\"");
   }
   Serial.println("[dataend]");
