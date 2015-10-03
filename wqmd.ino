@@ -48,7 +48,7 @@ void loop(){
   //if((millis() - lastTime) > 1200000) {
   
   // 60 seconds for testing
-  if((millis() - lastTime) > 60000){
+  if((millis() - lastTime) > 30000){
     tempProcess(StartConvert);   
     delay(2000); // give conversion time
     String newSample = takeSample();
@@ -173,11 +173,13 @@ String takeSample(){
   temperature = tempProcess(ReadTemperature);  // read the current temperature from the  DS18B20
   unsigned int avVoltage=analogAv*(float)5000/1024;
 
-  // float TempCoefficient=1.0+0.0185*(temperature-25.0); //temp compensation (needs adjusting)
+  float TempCoefficient=1.0+0.0185*(temperature-25.0); //temp compensation (needs adjusting)
+  // calibration was done ~ approx 20 degrees C
+  float compensatedVoltage = aVVoltage/TempCoefficient;
+
   //linear function obtained from measurements, (Cond/AVoltage) valid from ~200uS/cm to 1.4mS/cm
-  conductivity = 7.1905*avVoltage+162.41; 
-  //unsigned long timeSinceLast = ms_to_min(millis() - lastTime);
-  //lastTime = millis();
+  conductivity = 7.1905*compensatedVoltage+162.41; 
+  
   lastSampleTime = ms_to_min(millis() - lastTime);
   return serialiseToJson(temperature, conductivity, lastSampleTime);
 }
@@ -200,7 +202,7 @@ String serialiseToJson(float temp, float cond, unsigned long timeSinceLast){
 
   sample += ",\n\"Conductivity\":";
   sample += (String)cond;
-  sample+="\n}";
+  //sample+="\n}";
 
   //lastTime = millis();
   sampleNumber++;

@@ -43,7 +43,9 @@ void readSerial(){
   }
   else if(cmd == 644){// Status
     cmd = 0;
+    Serial.println("[databegin]");
     Serial.println("{\"status\":\"ready\"}"); //just send ready status (for testing)
+    Serial.println("[dataend]");
     /*
     poll status, return to phone
     check if there is data on SD, if not send (JSON) -> "{"status":"nodata"}"
@@ -76,15 +78,15 @@ void sendSingleSample(){
 void sendAllSamples(){
   int i;
   Serial.println("[databegin] {");
-  Serial.println("\"Status\": \"ready\",");
+  Serial.println("\"Status\": \"ready\"\n");
   Serial.println("\"samples\": [");
 
   for(i=0; i<10; i++){
     //send one measurement at a time
     Serial.print(values[i]);
     delay(200);
-    if(i==4){
-      Serial.println("]");
+    if(i==9){
+      Serial.println("],");
     }
     else{
       Serial.println(",");
@@ -97,8 +99,33 @@ void sendAllSamples(){
   Serial.println("} [dataend]");
 }
 
-String serialiseToJson(float temp, float cond, unsigned long time){
+String serialiseToJson(float temp, float cond, unsigned long timeSinceLast){
+  String sample;
+  sample += "{\"DeviceID\":\"";
+  sample += device_id;
+
+  sample += "\", \"SampleID\":\"";
+  sample += (String)sampleNumber;
+  
+  sample += "\", \"TimeSinceLast\":\"";
+  sample += (String)timeSinceLast;
+  
+  sample += "\", \"Temperature\":\"";
+  sample += (String)temp;
+  
+  sample += "\", \"Turbidity\":\"";
+  sample += (String)55;
+  
+  sample += "\", \"pH\":\"";
+  sample += (String)7;
+
+  //dtostrf(conductivity,2,2,buf);
+  sample += "\", \"Conductivity\":\"";
+  sample += (String)cond;
+  sample += "\"}";
+
   // construct JSON obj for individual sample
+  /*
   String sample;
   sample += "{\"DeviceID\":\"";
   sample += device_id;
@@ -115,8 +142,9 @@ String serialiseToJson(float temp, float cond, unsigned long time){
   //dtostrf(conductivity,2,2,buf);
   sample += ",\n\"Conductivity\":";
   sample += (String)cond;
-  sample+="\n}";
-
+  sample += "}";
+  //sample+="\n}";
+  */
  return sample;
 }
 
