@@ -17,7 +17,6 @@ int sampleNumber = 1;
 String device_id = "fluid_sol_01";
 
 unsigned long lastTime = 0;
-unsigned long lastSampleTime = 0;
 float temperature, conductivity;
 //Temperature chip i/o
 OneWire ds(DS18B20_Pin);
@@ -45,13 +44,11 @@ void loop(){
     readSerial();
   }
   //if 20 minutes has elapsed since last sample, take a new one
-  //if((millis() - lastTime) > 1200000) {
-  
-  // 60 seconds for testing
-  if((millis() - lastTime) > 30000){
+  if((millis() - lastTime) > 1200000) {
     tempProcess(StartConvert);   
     delay(2000); // give conversion time
-    String newSample = takeSample();
+    takeSample();
+    String newSample = serialiseToJson(temperature, conductivity, millis() - lastTime);
     saveToSD(newSample); // store sample on SD card
     lastTime = millis();
   }
@@ -104,16 +101,16 @@ void sendSingleSample(){
   
   Serial.println("[databegin]"); // for v1.3 API
   if(hasData == 1){  
-    Serial.println("{\"status\":\"ready\"}");
 
     tempProcess(StartConvert);   
     delay(2000);
-    
-    String newSample = takeSample();
+    takeSample();
+    String newSample = serialiseToJsonSS(temperature, conductivity, millis() - lastTime);
     Serial.println(newSample);
+    lastTime = millis();
   }
   else{ 
-    Serial.println("\"Status\": \"nodata\"");//file hasn't had samples written to it
+    Serial.println("\"status\": \"nodata\"");//file hasn't had samples written to it
   }
   Serial.println("[dataend]");
 }
@@ -124,11 +121,11 @@ void sendAllSamples(){
   int count = 0;
   File dataFile = SD.open("data.txt");
   
-  Serial.println("[databegin]");
+  Serial.println("[databegin] ");
   if (dataFile){ // file opened successfully
     if(hasData == 1){ // the file has had sample(s) written to it
       Serial.println("{");
-      Serial.println("\"Status\": \"ready\",");
+      Serial.println("\"status\": \"complete\",");
       Serial.println("\"samples\": [");
       // read all samples off File
       while(dataFile.available()){
@@ -138,31 +135,31 @@ void sendAllSamples(){
           currSample+= c;
         }
         else{
-          currSample += "}";
+          currSample += "}"; //replace close brace (was stripped off while reading from SD)
           Serial.println(currSample);
-          delay(200); // delay to avoid phone JSON buffer overflow
+          delay(500); // delay to avoid phone JSON buffer overflow
           currSample= ""; //reset temporary string for next sample
           count++;
         }
       }
       dataFile.close(); // close the file:
 
-      String endTime = "] \n\"TimeSinceLast\": ";
+      String endTime = "], \n\"TimeSinceLast\": ";
       endTime += (String)(ms_to_min(millis()-lastTime));
       Serial.println(endTime);
       Serial.println("}");
     }
     else{ 
-      Serial.println("\"Status\": \"nodata\"");//file hasn't had samples written to it
+      Serial.println("\"status\": \"nodata\"");//file hasn't had samples written to it
     }
   } 
   else{
     // if the file didn't open, fatalerror:
-    Serial.println("\"Status\": \"fatal\"");
+    Serial.println("\"status\": \"fatal\"");
   }
   Serial.println("[dataend]");
 }
-String takeSample(){
+void takeSample(){
   int i;
   unsigned int analogValTotal = 0;
   // calculate average analogue voltage (over 25 samples)
@@ -175,42 +172,73 @@ String takeSample(){
 
   float TempCoefficient=1.0+0.0185*(temperature-25.0); //temp compensation (needs adjusting)
   // calibration was done ~ approx 20 degrees C
-  float compensatedVoltage = aVVoltage/TempCoefficient;
+  float compensatedVoltage = avVoltage/TempCoefficient;
 
   //linear function obtained from measurements, (Cond/AVoltage) valid from ~200uS/cm to 1.4mS/cm
   conductivity = 7.1905*compensatedVoltage+162.41; 
-  
-  lastSampleTime = ms_to_min(millis() - lastTime);
-  return serialiseToJson(temperature, conductivity, lastSampleTime);
 }
 
 String serialiseToJson(float temp, float cond, unsigned long timeSinceLast){
-  // construct JSON obj for individual sample
   String sample;
-
   sample += "{\"DeviceID\":\"";
   sample += device_id;
 
-  sample += "\",\n\"SampleID\":";
+  sample += "\", \"SampleID\":\"";
   sample += (String)sampleNumber;
-
-  sample += ",\n\"TimeSinceLast\":";
+  
+  sample += "\", \"TimeSinceLast\":\"";
   sample += (String)timeSinceLast;
-
-  sample += ",\n\"Temperature\":";
+  
+  sample += "\", \"Temperature\":\"";
   sample += (String)temp;
+  
+  sample += "\", \"Turbidity\":\""; // -1 = NaN
+  sample += "-1";
+  
+  sample += "\", \"pH\":\"";
+  sample += "-1";
 
-  sample += ",\n\"Conductivity\":";
+  sample += "\", \"Conductivity\":\"";
   sample += (String)cond;
-  //sample+="\n}";
+  sample += "\"}";
 
-  //lastTime = millis();
   sampleNumber++;
   return sample;
 }
 
-unsigned long ms_to_min(unsigned long ms){
-  return (unsigned long)(ms/(float)60000);
+// formatting of single sample is slightly different, add this modified function
+String serialiseToJsonSS(float temp, float cond, unsigned long timeSinceLast){
+  String sample;
+
+  sample+= "{\"status\":\"complete\"";
+
+  sample += ", \"DeviceID\":\"";
+  sample += device_id;
+
+  sample += "\", \"SampleID\":\"";
+  sample += "1";
+  
+  sample += "\", \"TimeSinceLast\":\"";
+  sample += (String)timeSinceLast;
+  
+  sample += "\", \"Temperature\":\"";
+  sample += (String)temp;
+  
+  sample += "\", \"Turbidity\":\""; 
+  sample += "-1";
+  
+  sample += "\", \"pH\":\"";
+  sample += "-1";
+
+  sample += "\", \"Conductivity\":\"";
+  sample += (String)cond;
+  sample += "\"}";
+
+ return sample;
+}
+
+unsigned long ms_to_min(unsigned long milli_seconds){
+  return (milli_seconds/60000);
 }
 
 float tempProcess(bool ch){ //returns temperature in degrees C

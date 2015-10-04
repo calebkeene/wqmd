@@ -1,12 +1,10 @@
 String device_id = "fluid_sol_01";
 int sampleNumber = 0;
 unsigned long lastTime = 0;
-String values[10];
 int cmd = 0;
 
 void setup(){
   Serial.begin(115200);
-  buildDummyMeasurements();
 }
 
 void loop(){
@@ -54,38 +52,32 @@ void readSerial(){
   }
 }
 
-void buildDummyMeasurements(){ // just generate some test data to send (5 measurements)
- 
-  int i;
-  for(i = 0; i<10; i++){
-    float t = random(10, 30);
-    float c = random(500, 2500);
-    values[i] = serialiseToJson(t, c, ms_to_min(millis() - lastTime));
-    lastTime = millis();
-    delay(100);
-    sampleNumber++;
-  }
-}
-
 void sendSingleSample(){
-  Serial.println("[databegin] {");
-  Serial.println("{\"status\":\"ready\"}");
-  Serial.println(values[0]);
-  Serial.println("} [dataend]");
+  Serial.println("[databegin] ");
+  //Serial.println("{\"status\":\"complete\"},");
+  float t = random(10, 30); // randomly generate some values
+  float c = random(500, 2500);
+  // changed to a new function to generate single sample
+  Serial.println(serialiseToJsonSS(t, c, ms_to_min(millis() - lastTime))); 
+  Serial.println("[dataend]");
 
 }
 
 void sendAllSamples(){
   int i;
   Serial.println("[databegin] {");
-  Serial.println("\"Status\": \"ready\"\n");
+  Serial.println("\"status\": \"complete\",\n");
   Serial.println("\"samples\": [");
 
-  for(i=0; i<10; i++){
+  for(i=0; i<25; i++){
     //send one measurement at a time
-    Serial.print(values[i]);
+
+    float t = random(10, 30); // randomly generate some values
+    float c = random(500, 2500);
+    Serial.println(serialiseToJson(t, c, ms_to_min(millis() - lastTime))); // create JSON object (measurement), send it
+    lastTime = millis();
     delay(200);
-    if(i==9){
+    if(i == 24){
       Serial.println("],");
     }
     else{
@@ -97,6 +89,35 @@ void sendAllSamples(){
   endTime += (String)(ms_to_min(millis()-lastTime));
   Serial.println(endTime);
   Serial.println("} [dataend]");
+}
+String serialiseToJsonSS(float temp, float cond, unsigned long timeSinceLast){
+  String sample;
+
+  sample+= "{\"status\":\"complete\"";
+
+  sample += ", \"DeviceID\":\"";
+  sample += device_id;
+
+  sample += "\", \"SampleID\":\"";
+  sample += (String)sampleNumber;
+  
+  sample += "\", \"TimeSinceLast\":\"";
+  sample += (String)timeSinceLast;
+  
+  sample += "\", \"Temperature\":\"";
+  sample += (String)temp;
+  
+  sample += "\", \"Turbidity\":\"";
+  sample += "-1";
+  
+  sample += "\", \"pH\":\"";
+  sample += "-1";
+
+  sample += "\", \"Conductivity\":\"";
+  sample += (String)cond;
+  sample += "\"}";
+
+ return sample;
 }
 
 String serialiseToJson(float temp, float cond, unsigned long timeSinceLast){
@@ -114,40 +135,18 @@ String serialiseToJson(float temp, float cond, unsigned long timeSinceLast){
   sample += (String)temp;
   
   sample += "\", \"Turbidity\":\"";
-  sample += (String)55;
+  sample += "-1";
   
   sample += "\", \"pH\":\"";
-  sample += (String)7;
+  sample += "-1";
 
-  //dtostrf(conductivity,2,2,buf);
   sample += "\", \"Conductivity\":\"";
   sample += (String)cond;
   sample += "\"}";
 
-  // construct JSON obj for individual sample
-  /*
-  String sample;
-  sample += "{\"DeviceID\":\"";
-  sample += device_id;
-
-  sample += "\",\n\"SampleID\":";
-  sample += (String)sampleNumber;
-  
-  sample += ",\n\"TimeSinceLast\":";
-  sample += (String)time;
-  
-  sample += ",\n\"Temperature\":";
-  sample += (String)temp;
-  
-  //dtostrf(conductivity,2,2,buf);
-  sample += ",\n\"Conductivity\":";
-  sample += (String)cond;
-  sample += "}";
-  //sample+="\n}";
-  */
  return sample;
 }
 
 unsigned long ms_to_min(unsigned long milli_seconds){
-  return (milli_seconds/1000)/60;
+  return (milli_seconds/60000);
 }
