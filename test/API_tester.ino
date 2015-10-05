@@ -72,8 +72,8 @@ void sendAllSamples(){
   for(i=0; i<25; i++){
     //send one measurement at a time
 
-    float t = random(10, 30); // randomly generate some values
-    float c = random(500, 2500);
+    float t = random(17, 22); // randomly generate some values
+    float c = random(197, 572);
     Serial.println(serialiseToJson(t, c, ms_to_min(millis() - lastTime))); // create JSON object (measurement), send it
     lastTime = millis();
     delay(200);

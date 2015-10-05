@@ -1,3 +1,9 @@
+/*
+Water Quality Measuring Device (WQMD) - Code for running on the device
+
+Caleb Keene 2015
+MIT licence
+*/
 #include <OneWire.h>
 #include <SD.h>
 #include <SPI.h>
@@ -10,7 +16,7 @@ byte DS18B20_Pin = 2;  //DS18B20 signal (temp sensor), pin on digital 2
 byte nMOS_Pin = 5; // FET for disconnecting sensors in between samples
 const int chipSelect = 4; // for SD
 const byte numReadings = 25;
-
+int firstSample = 0;
 int hasData = 0; // flag to set when first writing data to SD
 int cmd = 0;
 int sampleNumber = 1;
@@ -26,7 +32,8 @@ void setup(){
   pinMode(10, OUTPUT); // need this to be set to output for SD module
   
   pinMode(nMOS_Pin, OUTPUT);
-  digitalWrite(nMOS_Pin, HIGH);
+  digitalWrite(nMOS_Pin, HIGH); // currently issues writing to SD when switching FET OFF/ON
+  // keep FET ON for the moment
  
   if (SD.begin(chipSelect)){
     Serial.println("{\"status\":\"ready\"}");
@@ -43,38 +50,55 @@ void loop(){
   if(Serial.available()){
     readSerial();
   }
+  if(firstSample == 0){ // take a sample immediately when first turning on device
+    /* this block ensures the device has some data when first turning on
+    by immediately taking a sample and saving to the SD, setting the hasData flag
+    which enables a mobile application to immediately send 'RetrieveData' without
+    receiving an error
+    */
+    firstSample = 0;
+    sampleProcess();
+  }
   //if 20 minutes has elapsed since last sample, take a new one
   if((millis() - lastTime) > 1200000) {
-    tempProcess(StartConvert);   
-    delay(2000); // give conversion time
-    takeSample();
-    String newSample = serialiseToJson(temperature, conductivity, millis() - lastTime);
-    saveToSD(newSample); // store sample on SD card
-    lastTime = millis();
+    sampleProcess();
   }
+}
+
+void sampleProcess(){
+  tempProcess(StartConvert);   
+  delay(2000); // give conversion time
+  takeSample();
+  String newSample = serialiseToJson(temperature, conductivity, millis() - lastTime);
+  saveToSD(newSample); // store sample on SD card
+  lastTime = millis();
 }
 
 void readSerial(){
   
-  unsigned long startTime = millis();
-  while(Serial.available() > 0){
-      cmd += Serial.read(); // Read char, add to ASCII sum
-    // if greater than 10 seconds have passed, break out (timeout)
-    if((millis() - startTime) > 10000){
-      break;
+  if (Serial.available()){
+    unsigned long start_time = millis();
+    while(Serial.available() > 0){
+        cmd += Serial.read(); // Read char, add to ASCII sum
+      // if greater than 10 seconds have passed, break out (timeout)
+      if((millis() - start_time) > 10000){
+        break;
+      }
     }
   }
   
   if(cmd == 416){// Test
     //take single sample, return it
-    sendSingleSample();
     cmd = 0;
+    sendSingleSample();
+    
   }
   else if(cmd == 1216){// RetrieveData
-    sendAllSamples();
     cmd = 0;
+    sendAllSamples();
   }
   else if(cmd == 644){// Status
+    cmd = 0;
     Serial.println("[databegin]");
     if(hasData == 1){
       Serial.println("{\"status\":\"ready\"}");
@@ -83,7 +107,6 @@ void readSerial(){
       Serial.println("{\"status\":\"nodata\"}");
     }
     Serial.println("[dataend]");
-    cmd = 0;
   }
 }
 
@@ -99,14 +122,13 @@ void saveToSD(String sample){
 
 void sendSingleSample(){
   
-  Serial.println("[databegin]"); // for v1.3 API
+  Serial.println("[databegin] "); // for v1.3 API
   if(hasData == 1){  
 
     tempProcess(StartConvert);   
-    delay(2000);
+    delay(200);
     takeSample();
-    String newSample = serialiseToJsonSS(temperature, conductivity, millis() - lastTime);
-    Serial.println(newSample);
+    Serial.println(serialiseToJsonSS(temperature, conductivity, millis() - lastTime));
     lastTime = millis();
   }
   else{ 
